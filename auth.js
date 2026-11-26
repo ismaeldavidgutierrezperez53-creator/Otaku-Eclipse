@@ -168,5 +168,57 @@
 
   el('cloudSave').onclick=()=>cloudAction(true);
   el('cloudRestore').onclick=()=>cloudAction(false);
+
+  // V2.3 — authenticated Web Push test, per-device opt-in.
+  const pushPanel=document.createElement('section');
+  pushPanel.className='panel';pushPanel.style.marginTop='14px';
+  pushPanel.innerHTML='<h3>Notificaciones push · V2.3</h3><p class="tiny">Activa los avisos en este dispositivo. Inicia sesión y permite las notificaciones. La prueba se envía desde Supabase.</p><div class="actions"><button type="button" id="eclipsePushOn">Activar dispositivo</button><button type="button" id="eclipsePushTest">Enviar prueba push</button><button type="button" id="eclipsePushOff">Desactivar dispositivo</button></div><p class="tiny" id="eclipsePushStatus" role="status" aria-live="polite"></p>';
+  el('cloudPanel').appendChild(pushPanel);
+  const pushMsg=t=>el('eclipsePushStatus').textContent=t;
+  let pushBusy=false;
+  async function pushCall(body){
+    if(!session?.user||recovery)throw Error('Inicia sesión primero.');
+    const {data,error}=await client.functions.invoke('eclipse-push',{body});
+    if(error){let detail='';try{detail=(await error.context.json()).error||'';}catch{}throw Error(detail||error.message||'Error del servidor push');}
+    if(data?.error)throw Error(data.error);return data;
+  }
+  async function pushRegistration(){
+    if(!isSecureContext||!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window))throw Error('Este navegador no admite Web Push desde esta dirección.');
+    await navigator.serviceWorker.register('./sw.js');
+    return await Promise.race([navigator.serviceWorker.ready,new Promise((_,reject)=>setTimeout(()=>reject(Error('El servicio de notificaciones no se ha activado. Recarga la página.')),15000))]);
+  }
+  function vapidBytes(v){const b=atob(v.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-v.length%4)%4));return Uint8Array.from(b,c=>c.charCodeAt(0));}
+  async function pushAction(action){
+    if(pushBusy)return;if(!session?.user||recovery){pushMsg('Inicia sesión primero.');return;}
+    const userId=session.user.id;
+    pushBusy=true;for(const id of ['eclipsePushOn','eclipsePushTest','eclipsePushOff'])el(id).disabled=true;
+    pushMsg('Conectando…');
+    try{
+      if(action==='register'){
+        if(!('Notification' in window))throw Error('Notificaciones no disponibles.');
+        const permission=await Notification.requestPermission();if(permission!=='granted')throw Error('Permiso de notificaciones no concedido.');
+      }
+      const reg=await pushRegistration();let sub=await reg.pushManager.getSubscription();
+      if(session?.user?.id!==userId||recovery)throw Error('La cuenta ha cambiado.');
+      if(action==='register'){
+        const {publicKey}=await pushCall({action:'key'});const key=vapidBytes(publicKey);
+        if(sub){const old=sub.options.applicationServerKey;if(old&&Array.from(new Uint8Array(old)).join(',')!==Array.from(key).join(',')){await pushCall({action:'disable',endpoint:sub.endpoint});await sub.unsubscribe();sub=null;}}
+        if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
+        if(session?.user?.id!==userId||recovery)throw Error('La cuenta ha cambiado.');
+        await pushCall({action:'register',subscription:sub.toJSON()});pushMsg('Dispositivo registrado. Ya puedes enviar una prueba push.');
+      }else if(action==='test'){
+        if(!sub)throw Error('Activa primero este dispositivo.');
+        await pushCall({action:'test',subscription:sub.toJSON()});pushMsg('El servidor push ha aceptado el envío. Comprueba las notificaciones del dispositivo.');
+      }else{
+        if(!sub){pushMsg('No hay una suscripción activa en este navegador.');return;}
+        await pushCall({action:'disable',endpoint:sub.endpoint});await sub.unsubscribe();pushMsg('Dispositivo desactivado.');
+      }
+    }catch(e){pushMsg('Error: '+(e.message||'No se pudo completar la operación.'));}
+    finally{pushBusy=false;for(const id of ['eclipsePushOn','eclipsePushTest','eclipsePushOff'])el(id).disabled=false;}
+  }
+  el('eclipsePushOn').onclick=()=>pushAction('register');
+  el('eclipsePushTest').onclick=()=>pushAction('test');
+  el('eclipsePushOff').onclick=()=>pushAction('disable');
+
   paint();
 })();
