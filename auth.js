@@ -220,5 +220,87 @@
   el('eclipsePushTest').onclick=()=>pushAction('test');
   el('eclipsePushOff').onclick=()=>pushAction('disable');
 
+  // V2.4 — opt-in cloud inbox. This check runs while the page is open.
+  const noticePanel=document.createElement('section');
+  noticePanel.className='panel';noticePanel.style.marginTop='14px';
+  noticePanel.innerHTML='<h3>🔔 Centro de notificaciones · V2.4</h3><p class="tiny">Activa los avisos que quieras recibir. Se comprueban con la aplicación abierta y se guardan en tu cuenta. Solo anime general.</p><div id="eclipseNoticePrefs" style="display:grid;gap:8px;margin:12px 0"></div><div class="actions"><button type="button" id="eclipseNoticeSave">Guardar preferencias</button><button type="button" id="eclipseNoticeRefresh">Comprobar avisos</button><button type="button" id="eclipseNoticeRead">Marcar todo como leído</button></div><p id="eclipseNoticeStatus" class="tiny" role="status" aria-live="polite"></p><div id="eclipseNoticeList" style="display:grid;gap:8px"></div>';
+  el('cloudPanel').appendChild(noticePanel);
+  const noticeTypes={episodes:'Nuevos episodios',premieres:'Próximos estrenos (episodio 1)',favorites:'Episodios de favoritos',goals:'Recordatorio semanal de metas'};
+  for(const [kind,label] of Object.entries(noticeTypes)){
+    const line=document.createElement('label'),check=document.createElement('input');
+    check.type='checkbox';check.id='eclipseNotice_'+kind;line.append(check,document.createTextNode(' '+label));el('eclipseNoticePrefs').append(line);
+  }
+  let noticeBusy=false,noticeOwner=null,noticeLast=0,noticePrefs=null;
+  const noticeStatus=t=>el('eclipseNoticeStatus').textContent=t;
+  const noticeUser=()=>!recovery&&session?.user?.id||null;
+  function noticeValid(user){return noticeUser()===user;}
+  function noticeControls(disabled){for(const id of ['eclipseNoticeSave','eclipseNoticeRefresh','eclipseNoticeRead',...Object.keys(noticeTypes).map(k=>'eclipseNotice_'+k)])el(id).disabled=disabled;}
+  function resetNotice(){noticeOwner=null;noticePrefs=null;noticeLast=0;el('eclipseNoticeList').replaceChildren();for(const k of Object.keys(noticeTypes))el('eclipseNotice_'+k).checked=false;noticeStatus('');noticeControls(true);}
+  async function loadNoticePrefs(user){
+    const {data,error}=await client.from('eclipse_notification_preferences').select('episodes,premieres,favorites,goals').eq('user_id',user).maybeSingle();
+    if(error)throw error;if(!noticeValid(user))throw Error('La cuenta ha cambiado.');
+    noticePrefs=Object.fromEntries(Object.keys(noticeTypes).map(k=>[k,data?.[k]===true]));
+    for(const k of Object.keys(noticeTypes))el('eclipseNotice_'+k).checked=noticePrefs[k];noticeOwner=user;
+  }
+  async function loadNoticeList(user){
+    const {data,error}=await client.from('eclipse_notifications').select('event_key,kind,title,body,created_at,read_at').eq('user_id',user).order('created_at',{ascending:false}).limit(50);
+    if(error)throw error;if(!noticeValid(user))return;
+    const target=el('eclipseNoticeList');target.replaceChildren();
+    const unread=(data||[]).filter(n=>!n.read_at).length;
+    const counter=document.createElement('p');counter.className='tiny';counter.textContent=unread+' sin leer · últimos 50 avisos';target.append(counter);
+    if(!data?.length){const p=document.createElement('p');p.textContent='Todavía no tienes avisos.';target.append(p);return;}
+    for(const n of data){const card=document.createElement('div');card.className='panel';card.style.padding='10px';
+      const heading=document.createElement('strong');heading.textContent=(n.read_at?'':'● ')+n.title;
+      const body=document.createElement('p');body.textContent=n.body;
+      const meta=document.createElement('small');meta.textContent=(noticeTypes[n.kind]||n.kind)+' · '+new Date(n.created_at).toLocaleString('es-ES');card.append(heading,body,meta);target.append(card);}
+  }
+  async function generateNotices(user,prefs){
+    const now=Math.floor(Date.now()/1000),events=[];
+    const add=(kind,key,title,body)=>events.push({user_id:user,event_key:key,kind,title:title.slice(0,160),body:body.slice(0,500)});
+    if(prefs.goals){const day=new Date();day.setUTCHours(0,0,0,0);day.setUTCDate(day.getUTCDate()-((day.getUTCDay()+6)%7));add('goals','goal:'+day.toISOString().slice(0,10),'Revisa tus metas de anime','Consulta tu progreso y registra los episodios vistos esta semana.');}
+    if(prefs.episodes||prefs.premieres||prefs.favorites){
+      const saved=rows.filter(x=>x.category==='normal'&&x.anilistId>0&&x.status!=='Abandonado');
+      const byId=new Map();for(const x of saved){const prev=byId.get(x.anilistId);if(!prev)byId.set(x.anilistId,{...x});else{prev.favorite=prev.favorite||x.favorite;prev.seen=Math.max(prev.seen,x.seen);}}
+      const ids=[...byId.keys()].slice(0,100);
+      const query='query($ids:[Int],$start:Int,$end:Int,$p:Int){Page(page:$p,perPage:50){pageInfo{hasNextPage} airingSchedules(mediaId_in:$ids,airingAt_greater:$start,airingAt_lesser:$end,sort:TIME){mediaId episode airingAt media{isAdult}}}}';
+      if(ids.length)for(let p=1;p<=5;p++){
+        const res=await fetch('https://graphql.anilist.co',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({query,variables:{ids,start:now-86400,end:now+86400*7,p}}),signal:AbortSignal.timeout(15000)});
+        if(!res.ok)throw Error('AniList no disponible ('+res.status+').');const j=await res.json();if(j.errors||!j.data?.Page)throw Error('No se pudo consultar AniList.');
+        if(!noticeValid(user))throw Error('La cuenta ha cambiado.');
+        for(const a of j.data.Page.airingSchedules||[]){const x=byId.get(a.mediaId);if(!x||a.media?.isAdult!==false||!Number.isInteger(a.episode)||!Number.isInteger(a.airingAt))continue;
+          const key=a.mediaId+':'+a.episode;const title=x.title;
+          if(a.airingAt<=now&&a.episode>x.seen){
+            if(prefs.episodes)add('episodes','ep:'+key,'Nuevo episodio · '+title,'Según el calendario de AniList, el episodio '+a.episode+' ya se ha emitido.');
+            if(prefs.favorites&&x.favorite)add('favorites','fav:'+key,'Novedad de un favorito · '+title,'El episodio '+a.episode+' de uno de tus favoritos figura como emitido en AniList.');
+          }else if(prefs.premieres&&a.episode===1&&a.airingAt>now){add('premieres','premiere:'+key,'Próximo estreno · '+title,'Fecha prevista: '+new Date(a.airingAt*1000).toLocaleString('es-ES')+' (puede cambiar).');}
+        }
+        if(!j.data.Page.pageInfo?.hasNextPage)break;
+      }
+    }
+    if(!noticeValid(user))throw Error('La cuenta ha cambiado.');
+    if(events.length){const unique=[...new Map(events.map(e=>[e.event_key,e])).values()];const {error}=await client.from('eclipse_notifications').upsert(unique,{onConflict:'user_id,event_key',ignoreDuplicates:true});if(error)throw error;}
+  }
+  async function noticeAction(action){
+    const user=noticeUser();if(!user||noticeBusy)return;noticeBusy=true;noticeControls(true);
+    try{
+      if(noticeOwner!==user||!noticePrefs)await loadNoticePrefs(user);
+      if(action==='save'){
+        const values=Object.fromEntries(Object.keys(noticeTypes).map(k=>[k,el('eclipseNotice_'+k).checked]));
+        const {error}=await client.from('eclipse_notification_preferences').upsert({user_id:user,...values,updated_at:new Date().toISOString()});if(error)throw error;if(!noticeValid(user))return;noticePrefs=values;noticeStatus('Preferencias guardadas.');
+      }else if(action==='read'){
+        const {error}=await client.from('eclipse_notifications').update({read_at:new Date().toISOString()}).eq('user_id',user).is('read_at',null);if(error)throw error;noticeStatus('Avisos marcados como leídos.');
+      }else if(action==='check'){
+        noticeStatus('Comprobando avisos…');await generateNotices(user,noticePrefs);noticeLast=Date.now();noticeStatus('Comprobación completada.');
+      }else noticeStatus('Preferencias cargadas.');
+      await loadNoticeList(user);
+    }catch(e){if(noticeValid(user))noticeStatus('Error: '+(e.message||'No se pudo completar.'));}
+    finally{noticeBusy=false;if(noticeValid(user))noticeControls(false);else resetNotice();}
+  }
+  el('eclipseNoticeSave').onclick=()=>noticeAction('save');el('eclipseNoticeRefresh').onclick=()=>noticeAction('check');el('eclipseNoticeRead').onclick=()=>noticeAction('read');
+  // Account changes clear previous private notices before another account uses the panel.
+  client.auth.onAuthStateChange(()=>{const user=noticeUser();if(user!==noticeOwner)resetNotice();setTimeout(()=>{if(noticeUser()&&!noticeBusy&&noticeOwner!==noticeUser())noticeAction('load');},100);});
+  el('accountButton').addEventListener('click',()=>{if(noticeUser()&&!noticeBusy&&noticeOwner!==noticeUser())noticeAction('load');});
+  setInterval(()=>{if(noticeUser()&&!document.hidden&&navigator.onLine&&!noticeBusy&&Date.now()-noticeLast>3600000)noticeAction('check');},60000);
+
   paint();
 })();
