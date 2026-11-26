@@ -1,0 +1,42 @@
+OTAKU ECLIPSE — versión 1.0
+1. Extrae todos los archivos. Abre index.html en Chrome o Edge para empezar.
+2. Para instalarla como PWA, publica todos los archivos en el mismo directorio de GitHub Pages u otro alojamiento HTTPS. Abre el sitio y selecciona Instalar aplicación si el navegador lo permite.
+3. El buscador requiere internet y acceso a graphql.anilist.co. El catálogo +18 solo ofrece metadatos de texto y fichas privadas, no reproduce contenido.
+4. Los datos se guardan localmente en el navegador. No hay inicio de sesión, sincronización entre dispositivos ni cifrado. Haz copias JSON. En modo +18 bloqueado, las exportaciones e importaciones excluyen ese catálogo. Para incluirlo, desbloquéalo antes. El bloqueo es solo visual, no un mecanismo de seguridad.
+5. Si cambias de navegador, de dominio o de archivo local, exporta antes e importa después. El almacenamiento local de file:// depende del navegador.
+
+ACTUALIZACIÓN 1.1 — CUENTAS
+Publica todos los archivos en HTTPS. En Supabase > Authentication > URL Configuration, introduce la URL real de la aplicación como Site URL y en Redirect URLs. En Authentication > Sign In / Providers comprueba que Email está habilitado. Configura SMTP propio para registros públicos si el servicio de correo predeterminado limita destinatarios. Prueba registro, confirmación, inicio de sesión y recuperación. El registro y la recuperación necesitan internet. La colección sigue en almacenamiento local separado por cuenta (no cifrado); todavía no se sincroniza con las tablas. Exporta la colección de invitado antes de iniciar sesión e impórtala manualmente a tu cuenta. No publiques claves de servicio ni contraseñas.
+
+ACTUALIZACIÓN 1.1.1 — CORRECCIÓN DE ARRANQUE
+Se renombra la función JavaScript que chocaba con window.top y se evita cargar el manifiesto desde file://. Extrae el ZIP completo antes de abrir index.html. La cuenta requiere HTTPS o localhost, internet y configuración de Supabase.
+
+ACTUALIZACIÓN 1.2 — FICHAS VISUALES
+El archivo +18 muestra ilustraciones abstractas propias de Eclipse, no portadas oficiales. Las fichas muestran año, formato, duración, episodios y puntuación cuando AniList los devuelve. Los datos nuevos se conservan en las entradas guardadas. Se mantiene el acceso por edad y el almacenamiento local. Antes de cambiar de carpeta, exporta tu colección JSON y después impórtala en la versión nueva. Si quieres incluir el archivo +18, desbloquéalo antes de exportar e importar.
+
+ACTUALIZACIÓN 1.3 — PORTADAS PERSONALIZADAS
+En Añadir título o Editar, selecciona una imagen JPG, PNG o WEBP no explícita que tengas guardada. Se reduce automáticamente y se conserva en la colección local y en la copia JSON. El catálogo general conserva la portada de AniList por defecto; el catálogo +18 no descarga portadas automáticamente.
+
+ACTUALIZACIÓN 1.4 — REUTILIZACIÓN DE PORTADAS
+El buscador reutiliza las portadas no explícitas guardadas en tu colección local cuando coincide el identificador AniList (o el título si falta el identificador). No incluye portadas oficiales verificadas de origen ni descarga automáticamente portadas del catálogo +18. Las ilustraciones alternativas siguen disponibles. Los resultados ya guardados permiten editar la ficha directamente.
+
+ACTUALIZACIÓN 1.6
+Filtros de resultados por año, formato y género (cuando la fuente devuelve géneros), orden por título, puntuación y año. Orden de colección. Fichas de anime general con título original, estudio y sinopsis cuando están disponibles (en idioma de AniList). No cambia el sistema de portadas.
+Copia en la nube manual: abre desde HTTPS o localhost, inicia sesión, entra en Mi cuenta y pulsa Guardar en la nube o Restaurar desde la nube. Ambas operaciones requieren confirmación y reemplazan la copia de destino; no es una fusión automática. Se incluye la colección completa de la cuenta, notas y archivo +18, sin cifrado de extremo a extremo. Exporta JSON antes de restaurar. La tabla eclipse_collection_backup es independiente de las anteriores.
+
+V1.7: vista de lista/cuadrícula, filtros de colección por género, año y puntuación personal; resumen de progreso. El catálogo de portadas y la configuración de Supabase no cambian.
+
+V1.8: Listas personalizadas en el editor (separadas por comas), filtro por lista en la colección, botón −1 episodio, calendario de emisiones de anime general guardado mediante AniList (últimas 24 horas y próximos 7 días). Avisos dentro del calendario, sin notificaciones push. Las listas se incluyen en las copias JSON y de la nube.
+
+
+ACTUALIZACIÓN 1.9 — METAS, TEMAS Y ACTIVIDAD
+Metas mensuales y actividad de anime general desde esta versión, seis insignias, temas Eclipse/Océano/Sakura. Las preferencias e historial se guardan localmente por cuenta; no están incluidos en las copias de colección. Los avisos del navegador requieren HTTPS o localhost, permiso y consultar el calendario con la aplicación abierta. No hay push en segundo plano. La copia de Supabase sigue siendo manual para evitar conflictos entre dispositivos. No se modifica el catálogo de portadas +18.
+
+
+V2.0: perfil privado local, niveles XP calculados para anime general, historial por meses, temas Aurora/Fénix, recuperación automática local opcional (una copia anterior). No hay sincronización automática en nube ni avisos con la aplicación cerrada. Conserva la copia manual de Supabase. Exporta la colección antes de cambiar de carpeta; desbloquea el archivo +18 si deseas incluirlo. Las preferencias de perfil e historial permanecen en el almacenamiento del navegador y no forman parte de la exportación JSON.
+
+V2.1 — Sincronización opcional de la colección
+Abre desde HTTPS o localhost, inicia sesión y entra en Mi cuenta > Activar sincronización en este dispositivo. Se comprueban los cambios al guardar y cada 30 segundos mientras la app está visible. Ante un conflicto no se sustituye ninguna copia hasta que elijas. Exporta una copia JSON antes de resolver conflictos. La sincronización incluye notas y Archivo +18; no incluye perfil, temas ni historial. Desactivar sincronización conserva la copia remota. No es cifrado de extremo a extremo. Para usar otro dispositivo, abre la misma web HTTPS e inicia sesión con la misma cuenta. Los botones manuales se habilitan al desactivar sincronización.
+
+V2.2 — Diagnóstico de notificaciones
+Desde HTTPS o localhost, abre Ajustes > Avisos de episodios > Comprobar compatibilidad push y Enviar notificación de prueba. Acepta el permiso y comprueba las notificaciones del sistema. La prueba es local; no demuestra la recepción push con la app cerrada. El servidor de envío de estrenos aún no está conectado. No cambia la sincronización ni las tablas de Supabase. Exporta antes de actualizar y usa el mismo origen HTTPS para conservar el almacenamiento.
