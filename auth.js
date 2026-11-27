@@ -205,13 +205,13 @@
         if(sub){const old=sub.options.applicationServerKey;if(old&&Array.from(new Uint8Array(old)).join(',')!==Array.from(key).join(',')){await pushCall({action:'disable',endpoint:sub.endpoint});await sub.unsubscribe();sub=null;}}
         if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
         if(session?.user?.id!==userId||recovery)throw Error('La cuenta ha cambiado.');
-        await pushCall({action:'register',subscription:sub.toJSON()});pushMsg('Dispositivo registrado. Ya puedes enviar una prueba push.');
+        await pushCall({action:'register',subscription:sub.toJSON()});pushMsg('Dispositivo registrado. Ya puedes enviar una prueba push.');window.dispatchEvent(new Event('eclipse-push-changed'));
       }else if(action==='test'){
         if(!sub)throw Error('Activa primero este dispositivo.');
         await pushCall({action:'test',subscription:sub.toJSON()});pushMsg('El servidor push ha aceptado el envío. Comprueba las notificaciones del dispositivo.');
       }else{
         if(!sub){pushMsg('No hay una suscripción activa en este navegador.');return;}
-        await pushCall({action:'disable',endpoint:sub.endpoint});await sub.unsubscribe();pushMsg('Dispositivo desactivado.');
+        await pushCall({action:'disable',endpoint:sub.endpoint});await sub.unsubscribe();pushMsg('Dispositivo desactivado.');window.dispatchEvent(new Event('eclipse-push-changed'));
       }
     }catch(e){pushMsg('Error: '+(e.message||'No se pudo completar la operación.'));}
     finally{pushBusy=false;for(const id of ['eclipsePushOn','eclipsePushTest','eclipsePushOff'])el(id).disabled=false;}
@@ -301,6 +301,45 @@
   client.auth.onAuthStateChange(()=>{const user=noticeUser();if(user!==noticeOwner)resetNotice();setTimeout(()=>{if(noticeUser()&&!noticeBusy&&noticeOwner!==noticeUser())noticeAction('load');},100);});
   el('accountButton').addEventListener('click',()=>{if(noticeUser()&&!noticeBusy&&noticeOwner!==noticeUser())noticeAction('load');});
   setInterval(()=>{if(noticeUser()&&!document.hidden&&navigator.onLine&&!noticeBusy&&Date.now()-noticeLast>3600000)noticeAction('check');},60000);
+
+  // V2.6 — private device management and account-wide quiet hours.
+  const devicePanel=document.createElement('section');
+  devicePanel.className='panel';devicePanel.style.marginTop='14px';
+  devicePanel.innerHTML='<h3>📱 Centro de dispositivos · V2.6</h3><p class="tiny">Gestiona los navegadores registrados. El estado indica registro, no conexión en tiempo real.</p><button type="button" id="eclipseDeviceRefresh">Actualizar dispositivos</button><p id="eclipseDeviceStatus" class="tiny" role="status" aria-live="polite"></p><div id="eclipseDeviceList" style="display:grid;gap:8px"></div><hr><h3>🌙 Horario de silencio</h3><p class="tiny">Hora de Madrid. Se aplica a todos los dispositivos y a los envíos automáticos. Las pruebas manuales se pueden enviar en cualquier momento.</p><label><input type="checkbox" id="eclipseQuietEnabled"> Activar horario de silencio</label><div class="actions"><label>Desde <input type="time" id="eclipseQuietStart" value="22:00"></label><label>Hasta <input type="time" id="eclipseQuietEnd" value="08:00"></label></div><button type="button" id="eclipseQuietSave">Guardar horario</button><p id="eclipseQuietStatus" class="tiny" role="status"></p><hr><h3>📊 Historial de envíos automáticos</h3><p class="tiny">Últimos 30 avisos procesados. Aceptado significa que el servicio push aceptó el envío; no confirma su lectura. Los avisos agrupados comparten el resultado del envío.</p><div id="eclipseDeviceHistory" style="display:grid;gap:8px"></div>';
+  el('cloudPanel').appendChild(devicePanel);
+  let deviceBusy=false,deviceOwner=null,deviceCurrent=null,quietLoaded=false;
+  const deviceUser=()=>!recovery&&session?.user?.id||null;
+  const deviceStatus=t=>el('eclipseDeviceStatus').textContent=t;
+  const quietStatus=t=>el('eclipseQuietStatus').textContent=t;
+  function devicePlatform(){const u=navigator.userAgent;const p=navigator.userAgentData?.platform||'';if(/Android/i.test(u+' '+p))return 'Android';if(/iPhone|iPad|iPod/i.test(u)||(/Mac/i.test(p||u)&&navigator.maxTouchPoints>1))return 'iOS';if(/Windows/i.test(u+' '+p))return 'Windows';if(/Mac/i.test(p||u))return 'macOS';if(/Linux/i.test(u+' '+p))return 'Linux';return 'Desconocido';}
+  async function currentPush(){if(!('serviceWorker' in navigator))return null;try{const reg=await navigator.serviceWorker.getRegistration();return await reg?.pushManager?.getSubscription()||null;}catch{return null;}}
+  async function deviceCall(body){const {data,error}=await client.functions.invoke('eclipse-devices',{body});if(error){let detail='';try{detail=(await error.context.json()).error||'';}catch{}throw Error(detail||error.message||'Error de conexión');}if(data?.error)throw Error(data.error);return data;}
+  function deviceControls(){devicePanel.querySelectorAll('button,input').forEach(e=>{e.disabled=deviceBusy||!deviceUser()||(!quietLoaded&&['eclipseQuietSave','eclipseQuietEnabled','eclipseQuietStart','eclipseQuietEnd'].includes(e.id));});}
+  function clearDevices(){deviceOwner=null;deviceCurrent=null;quietLoaded=false;el('eclipseDeviceList').replaceChildren();el('eclipseDeviceHistory').replaceChildren();el('eclipseQuietEnabled').checked=false;el('eclipseQuietStart').value='22:00';el('eclipseQuietEnd').value='08:00';deviceStatus('');quietStatus('');deviceControls();}
+  function drawDevices(data,user){if(deviceUser()!==user)return;deviceCurrent=data.current;const target=el('eclipseDeviceList');target.replaceChildren();
+    const count=document.createElement('p');count.className='tiny';count.textContent=(data.devices?.length||0)+' dispositivos registrados';target.append(count);
+    for(const d of data.devices||[]){const card=document.createElement('div');card.className='panel';card.style.padding='10px';const heading=document.createElement('strong');heading.textContent=(d.platform==='Android'||d.platform==='iOS'?'📱 ':'💻 ')+d.platform+(d.device_id===deviceCurrent?' · Este dispositivo':'');const meta=document.createElement('p');meta.className='tiny';meta.textContent='Registrado · Último contacto: '+new Date(d.updated_at).toLocaleString('es-ES');const actions=document.createElement('div');actions.className='actions';for(const [action,label] of [['test','Enviar prueba'],['remove','Eliminar dispositivo']]){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=()=>deviceAction(action,d.device_id);actions.append(b);}card.append(heading,meta,actions);target.append(card);}
+    const history=el('eclipseDeviceHistory');history.replaceChildren();if(!data.history?.length){const t=document.createElement('p');t.textContent='Todavía no hay envíos registrados.';history.append(t);}
+    const labels={attempted:'Intento registrado (sin resultado)',accepted:'Aceptado',partial:'Parcial',failed:'Fallido'};
+    for(const h of data.history||[]){const line=document.createElement('div');line.className='panel';line.style.padding='8px';const title=document.createElement('strong');title.textContent=labels[h.result]||'Sin resultado';const meta=document.createElement('p');meta.className='tiny';meta.textContent=new Date(h.attempted_at).toLocaleString('es-ES')+(h.result==='attempted'?'':' · '+h.accepted_count+' aceptados / '+h.failed_count+' fallidos');line.append(title,meta);history.append(line);}
+  }
+  async function deviceLoad(user,loadQuiet=true){const sub=await currentPush();const data=await deviceCall({action:'list',endpoint:sub?.endpoint||null,platform:devicePlatform()});if(deviceUser()!==user)return;drawDevices(data,user);
+    if(loadQuiet){const {data:p,error}=await client.from('eclipse_notification_preferences').select('quiet_enabled,quiet_start,quiet_end').eq('user_id',user).maybeSingle();if(error)throw error;if(deviceUser()!==user)return;el('eclipseQuietEnabled').checked=p?.quiet_enabled===true;el('eclipseQuietStart').value=(p?.quiet_start||'22:00').slice(0,5);el('eclipseQuietEnd').value=(p?.quiet_end||'08:00').slice(0,5);quietLoaded=true;}
+    deviceOwner=user;
+  }
+  async function deviceAction(action,id){const user=deviceUser();if(!user||deviceBusy)return;if(action==='remove'&&!confirm('¿Eliminar este dispositivo de los envíos push? Podrás activarlo de nuevo desde ese navegador.'))return;
+    deviceBusy=true;deviceControls();deviceStatus('Conectando…');try{
+      if(action==='test'){await deviceCall({action:'test',device_id:id});if(deviceUser()===user)deviceStatus('Prueba aceptada por el servicio push. Comprueba el dispositivo.');}
+      else if(action==='remove'){const local=id===deviceCurrent;await deviceCall({action:'remove',device_id:id});if(deviceUser()!==user)return;if(local){try{await (await currentPush())?.unsubscribe();}catch{}}await deviceLoad(user,false);if(deviceUser()===user)deviceStatus('Dispositivo eliminado.');}
+      else{await deviceLoad(user,true);if(deviceUser()===user)deviceStatus('Dispositivos actualizados.');}
+    }catch(e){if(deviceUser()===user)deviceStatus('Error: '+(e.message||'No se pudo completar.'));}finally{deviceBusy=false;if(deviceUser()!==user)clearDevices();deviceControls();}
+  }
+  async function saveQuiet(){const user=deviceUser();if(!user||deviceBusy||!quietLoaded)return;const start=el('eclipseQuietStart').value,end=el('eclipseQuietEnd').value;if(!/^\d\d:\d\d$/.test(start)||!/^\d\d:\d\d$/.test(end)||start===end){quietStatus('Elige dos horas diferentes.');return;}const enabled=el('eclipseQuietEnabled').checked;deviceBusy=true;deviceControls();quietStatus('Guardando…');try{const {error}=await client.from('eclipse_notification_preferences').upsert({user_id:user,quiet_enabled:enabled,quiet_start:start,quiet_end:end,updated_at:new Date().toISOString()});if(error)throw error;if(deviceUser()===user)quietStatus(enabled?'Horario guardado · '+start+'–'+end+' (Madrid).':'Horario de silencio desactivado.');}catch(e){if(deviceUser()===user)quietStatus('Error: '+e.message);}finally{deviceBusy=false;if(deviceUser()!==user)clearDevices();deviceControls();}}
+  el('eclipseDeviceRefresh').onclick=()=>deviceAction('load');el('eclipseQuietSave').onclick=saveQuiet;
+  el('accountButton').addEventListener('click',()=>{if(deviceUser()&&!deviceBusy)deviceAction('load');});
+  client.auth.onAuthStateChange(()=>{if(deviceUser()!==deviceOwner)clearDevices();setTimeout(()=>{if(deviceUser()&&!deviceBusy&&deviceOwner!==deviceUser())deviceAction('load');},100);});
+  window.addEventListener('eclipse-push-changed',()=>{if(deviceUser()&&!deviceBusy)deviceAction('load');});
+  deviceControls();
 
   paint();
 })();
