@@ -223,8 +223,21 @@
   // V2.4 — opt-in cloud inbox. This check runs while the page is open.
   const noticePanel=document.createElement('section');
   noticePanel.className='panel';noticePanel.style.marginTop='14px';
-  noticePanel.innerHTML='<h3>🔔 Centro de notificaciones · V2.4</h3><p class="tiny">Activa los avisos que quieras recibir. Se comprueban con la aplicación abierta y se guardan en tu cuenta. Solo anime general.</p><div id="eclipseNoticePrefs" style="display:grid;gap:8px;margin:12px 0"></div><div class="actions"><button type="button" id="eclipseNoticeSave">Guardar preferencias</button><button type="button" id="eclipseNoticeRefresh">Comprobar avisos</button><button type="button" id="eclipseNoticeRead">Marcar todo como leído</button></div><p id="eclipseNoticeStatus" class="tiny" role="status" aria-live="polite"></p><div id="eclipseNoticeList" style="display:grid;gap:8px"></div>';
+  noticePanel.innerHTML='<h3>🔔 Centro de notificaciones · V2.7</h3><p class="tiny">Activa los avisos que quieras recibir. Se comprueban con la aplicación abierta y se guardan en tu cuenta. Solo anime general.</p><div id="eclipseNoticePrefs" style="display:grid;gap:8px;margin:12px 0"></div><div class="actions"><button type="button" id="eclipseNoticeSave">Guardar preferencias</button><button type="button" id="eclipseNoticeRefresh">Comprobar avisos</button><button type="button" id="eclipseNoticeRead">Marcar todo como leído</button></div><p id="eclipseNoticeStatus" class="tiny" role="status" aria-live="polite"></p><div id="eclipseNoticeList" style="display:grid;gap:8px"></div>';
   el('cloudPanel').appendChild(noticePanel);
+  noticePanel.id='eclipseNoticePanel';
+  const noticeStyle=document.createElement('style');
+  noticeStyle.textContent=`#eclipseBell{display:flex;align-items:center;justify-content:center;gap:8px;min-height:40px;flex:none;padding:7px 10px;margin-left:auto;position:relative;background:var(--panel);border-color:var(--line)}#eclipseBellCount{background:#dc3c5c;color:white;border-radius:99px;padding:2px 6px;font-size:11px;font-weight:800;min-width:20px;text-align:center}#eclipseNoticePanel{scroll-margin-top:10px;overflow-wrap:anywhere}#eclipseNoticeFilters{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}#eclipseNoticeList .eclipseNoticeCard{display:grid;gap:8px;padding:12px;border-left:3px solid var(--line)}#eclipseNoticeList .eclipseNoticeCard.unread{border-left-color:var(--accent)}#eclipseNoticeList .eclipseNoticeCard .actions button{min-height:38px}#eclipseNoticeList .eclipseNoticeCard .actions{margin-top:3px}#eclipseNoticePanel label:has(input[type=checkbox]){display:flex;align-items:center;gap:8px}@media(max-width:750px){#eclipseBell{min-height:44px}#eclipseNoticePanel{padding:12px}#eclipseNoticeFilters{grid-template-columns:1fr}#eclipseNoticeList .actions button{flex:1 1 110px;min-height:44px}#accountDialog{padding:15px;max-height:92dvh}}`;
+  document.head.append(noticeStyle);
+  const noticeBell=document.createElement('button');noticeBell.type='button';noticeBell.id='eclipseBell';noticeBell.setAttribute('aria-label','Abrir centro de notificaciones');noticeBell.innerHTML='<span aria-hidden="true">🔔</span><span id="eclipseBellCount" hidden>0</span>';
+  const bellHost=document.querySelector('.brand');if(bellHost)bellHost.append(noticeBell);else el('accountButton').before(noticeBell);
+  const filters=document.createElement('div');filters.id='eclipseNoticeFilters';filters.innerHTML='<label>Categoría<select id="eclipseNoticeCategory"><option value="all">Todas</option><option value="episodes">Episodios</option><option value="premieres">Estrenos</option><option value="favorites">Anime favorito</option><option value="goals">Metas</option></select></label><label>Mostrar<select id="eclipseNoticeView"><option value="all">Todos los avisos</option><option value="unread">Sin leer</option><option value="starred">Avisos favoritos</option></select></label>';
+  el('eclipseNoticeList').before(filters);
+  function setBellCount(count){const badge=el('eclipseBellCount');badge.hidden=!(count>0);badge.textContent=count>99?'99+':String(count||0);noticeBell.setAttribute('aria-label','Abrir centro de notificaciones'+(count>0?' · '+count+' sin leer':''));}
+  let bellRequest=0;
+  async function refreshBell(){const user=noticeUser(),request=++bellRequest;if(!user){setBellCount(0);return;}try{const {count,error}=await client.from('eclipse_notifications').select('event_key',{count:'exact',head:true}).eq('user_id',user).is('read_at',null).is('deleted_at',null);if(!error&&noticeValid(user)&&request===bellRequest)setBellCount(count||0);}catch{}}
+  noticeBell.onclick=()=>{el('accountButton').click();if(noticeUser()){requestAnimationFrame(()=>noticePanel.scrollIntoView({block:'start',behavior:'auto'}));if(!noticeBusy)noticeAction('refresh');}};
+  for(const id of ['eclipseNoticeCategory','eclipseNoticeView'])el(id).onchange=()=>noticeAction('refresh');
   const noticeTypes={episodes:'Nuevos episodios',premieres:'Próximos estrenos (episodio 1)',favorites:'Episodios de favoritos',goals:'Recordatorio semanal de metas'};
   for(const [kind,label] of Object.entries(noticeTypes)){
     const line=document.createElement('label'),check=document.createElement('input');
@@ -234,8 +247,8 @@
   const noticeStatus=t=>el('eclipseNoticeStatus').textContent=t;
   const noticeUser=()=>!recovery&&session?.user?.id||null;
   function noticeValid(user){return noticeUser()===user;}
-  function noticeControls(disabled){for(const id of ['eclipseNoticeSave','eclipseNoticeRefresh','eclipseNoticeRead',...Object.keys(noticeTypes).map(k=>'eclipseNotice_'+k)])el(id).disabled=disabled;}
-  function resetNotice(){noticeOwner=null;noticePrefs=null;noticeLast=0;el('eclipseNoticeList').replaceChildren();for(const k of Object.keys(noticeTypes))el('eclipseNotice_'+k).checked=false;noticeStatus('');noticeControls(true);}
+  function noticeControls(disabled){for(const id of ['eclipseNoticeSave','eclipseNoticeRefresh','eclipseNoticeRead',...Object.keys(noticeTypes).map(k=>'eclipseNotice_'+k),'eclipseNoticeCategory','eclipseNoticeView'])el(id).disabled=disabled;noticePanel.querySelectorAll('[data-notice-action]').forEach(b=>b.disabled=disabled);}
+  function resetNotice(){noticeOwner=null;noticePrefs=null;noticeLast=0;bellRequest++;setBellCount(0);el('eclipseNoticeCategory').value='all';el('eclipseNoticeView').value='all';el('eclipseNoticeList').replaceChildren();for(const k of Object.keys(noticeTypes))el('eclipseNotice_'+k).checked=false;noticeStatus('');noticeControls(true);}
   async function loadNoticePrefs(user){
     const {data,error}=await client.from('eclipse_notification_preferences').select('episodes,premieres,favorites,goals').eq('user_id',user).maybeSingle();
     if(error)throw error;if(!noticeValid(user))throw Error('La cuenta ha cambiado.');
@@ -243,16 +256,28 @@
     for(const k of Object.keys(noticeTypes))el('eclipseNotice_'+k).checked=noticePrefs[k];noticeOwner=user;
   }
   async function loadNoticeList(user){
-    const {data,error}=await client.from('eclipse_notifications').select('event_key,kind,title,body,created_at,read_at').eq('user_id',user).order('created_at',{ascending:false}).limit(50);
+    const cat=el('eclipseNoticeCategory').value,view=el('eclipseNoticeView').value;
+    let query=client.from('eclipse_notifications').select('event_key,kind,title,body,created_at,read_at,starred').eq('user_id',user).is('deleted_at',null);
+    if(cat!=='all')query=query.eq('kind',cat);if(view==='unread')query=query.is('read_at',null);if(view==='starred')query=query.eq('starred',true);
+    const {data,error}=await query.order('created_at',{ascending:false}).limit(50);
     if(error)throw error;if(!noticeValid(user))return;
     const target=el('eclipseNoticeList');target.replaceChildren();
-    const unread=(data||[]).filter(n=>!n.read_at).length;
-    const counter=document.createElement('p');counter.className='tiny';counter.textContent=unread+' sin leer · últimos 50 avisos';target.append(counter);
-    if(!data?.length){const p=document.createElement('p');p.textContent='Todavía no tienes avisos.';target.append(p);return;}
-    for(const n of data){const card=document.createElement('div');card.className='panel';card.style.padding='10px';
-      const heading=document.createElement('strong');heading.textContent=(n.read_at?'':'● ')+n.title;
+    const counter=document.createElement('p');counter.className='tiny';counter.textContent=(data?.length||0)+' avisos mostrados · máximo 50';target.append(counter);
+    if(!data?.length){const p=document.createElement('p');p.textContent='No hay avisos que coincidan con este filtro.';target.append(p);await refreshBell();return;}
+    for(const n of data){const card=document.createElement('div');card.className='panel eclipseNoticeCard'+(n.read_at?'':' unread');
+      const heading=document.createElement('strong');heading.textContent=(n.read_at?'':'● ')+(n.starred?'★ ':'')+n.title;
       const body=document.createElement('p');body.textContent=n.body;
-      const meta=document.createElement('small');meta.textContent=(noticeTypes[n.kind]||n.kind)+' · '+new Date(n.created_at).toLocaleString('es-ES');card.append(heading,body,meta);target.append(card);}
+      const meta=document.createElement('small');meta.className='tiny';meta.textContent=(noticeTypes[n.kind]||n.kind)+' · '+new Date(n.created_at).toLocaleString('es-ES');
+      const actions=document.createElement('div');actions.className='actions';
+      for(const [action,label] of [['star',n.starred?'★ Quitar favorito':'☆ Guardar favorito'],['read',n.read_at?'Marcar sin leer':'Marcar leído'],['delete','Eliminar']]){const button=document.createElement('button');button.type='button';button.dataset.noticeAction=action;button.textContent=label;if(action==='delete')button.className='danger';button.disabled=noticeBusy;button.onclick=()=>changeNotice(user,n,action);actions.append(button);}
+      card.append(heading,body,meta,actions);target.append(card);}
+    await refreshBell();
+  }
+  async function changeNotice(user,n,action){
+    if(noticeBusy||!noticeValid(user))return;
+    if(action==='delete'&&!confirm('¿Eliminar este aviso?'))return;
+    const stamp=new Date().toISOString(),patch=action==='star'?{starred:!n.starred}:action==='read'?{read_at:n.read_at?null:stamp}:{deleted_at:stamp,read_at:stamp};
+    noticeBusy=true;noticeControls(true);try{const {error}=await client.from('eclipse_notifications').update(patch).eq('user_id',user).eq('event_key',n.event_key).is('deleted_at',null);if(error)throw error;if(!noticeValid(user))return;await loadNoticeList(user);noticeStatus(action==='delete'?'Aviso eliminado.':action==='star'?'Favorito actualizado.':'Estado actualizado.');}catch(e){if(noticeValid(user))noticeStatus('Error: '+e.message);}finally{noticeBusy=false;if(noticeValid(user))noticeControls(false);else resetNotice();}
   }
   async function generateNotices(user,prefs){
     const now=Math.floor(Date.now()/1000),events=[];
@@ -288,10 +313,10 @@
         const values=Object.fromEntries(Object.keys(noticeTypes).map(k=>[k,el('eclipseNotice_'+k).checked]));
         const {error}=await client.from('eclipse_notification_preferences').upsert({user_id:user,...values,updated_at:new Date().toISOString()});if(error)throw error;if(!noticeValid(user))return;noticePrefs=values;noticeStatus('Preferencias guardadas.');
       }else if(action==='read'){
-        const {error}=await client.from('eclipse_notifications').update({read_at:new Date().toISOString()}).eq('user_id',user).is('read_at',null);if(error)throw error;noticeStatus('Avisos marcados como leídos.');
+        const {error}=await client.from('eclipse_notifications').update({read_at:new Date().toISOString()}).eq('user_id',user).is('read_at',null).is('deleted_at',null);if(error)throw error;noticeStatus('Avisos marcados como leídos.');
       }else if(action==='check'){
         noticeStatus('Comprobando avisos…');await generateNotices(user,noticePrefs);noticeLast=Date.now();noticeStatus('Comprobación completada.');
-      }else noticeStatus('Preferencias cargadas.');
+      }else noticeStatus(action==='refresh'?'Avisos actualizados.':'Preferencias cargadas.');
       await loadNoticeList(user);
     }catch(e){if(noticeValid(user))noticeStatus('Error: '+(e.message||'No se pudo completar.'));}
     finally{noticeBusy=false;if(noticeValid(user))noticeControls(false);else resetNotice();}
@@ -302,6 +327,9 @@
   el('accountButton').addEventListener('click',()=>{if(noticeUser()&&!noticeBusy&&noticeOwner!==noticeUser())noticeAction('load');});
   setInterval(()=>{if(noticeUser()&&!document.hidden&&navigator.onLine&&!noticeBusy&&Date.now()-noticeLast>3600000)noticeAction('check');},60000);
 
+  setInterval(()=>{if(!document.hidden&&navigator.onLine)refreshBell();},30000);
+  window.addEventListener('focus',refreshBell);
+  client.auth.onAuthStateChange(()=>setTimeout(refreshBell,100));
   // V2.6 — private device management and account-wide quiet hours.
   const devicePanel=document.createElement('section');
   devicePanel.className='panel';devicePanel.style.marginTop='14px';
