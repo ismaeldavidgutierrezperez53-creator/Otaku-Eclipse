@@ -223,7 +223,7 @@
   // V2.4 — opt-in cloud inbox. This check runs while the page is open.
   const noticePanel=document.createElement('section');
   noticePanel.className='panel';noticePanel.style.marginTop='14px';
-  noticePanel.innerHTML='<h3>🔔 Centro de notificaciones · V2.7</h3><p class="tiny">Activa los avisos que quieras recibir. Se comprueban con la aplicación abierta y se guardan en tu cuenta. Solo anime general.</p><div id="eclipseNoticePrefs" style="display:grid;gap:8px;margin:12px 0"></div><div class="actions"><button type="button" id="eclipseNoticeSave">Guardar preferencias</button><button type="button" id="eclipseNoticeRefresh">Comprobar avisos</button><button type="button" id="eclipseNoticeRead">Marcar todo como leído</button></div><p id="eclipseNoticeStatus" class="tiny" role="status" aria-live="polite"></p><div id="eclipseNoticeList" style="display:grid;gap:8px"></div>';
+  noticePanel.innerHTML='<h3>🔔 Centro de notificaciones · V2.8</h3><p class="tiny">Activa los avisos que quieras recibir. Se comprueban con la aplicación abierta y se guardan en tu cuenta. Solo anime general.</p><div id="eclipseNoticePrefs" style="display:grid;gap:8px;margin:12px 0"></div><div class="actions"><button type="button" id="eclipseNoticeSave">Guardar preferencias</button><button type="button" id="eclipseNoticeRefresh">Comprobar avisos</button><button type="button" id="eclipseNoticeRead">Marcar todo como leído</button></div><p id="eclipseNoticeStatus" class="tiny" role="status" aria-live="polite"></p><div id="eclipseNoticeList" style="display:grid;gap:8px"></div>';
   el('cloudPanel').appendChild(noticePanel);
   noticePanel.id='eclipseNoticePanel';
   const noticeStyle=document.createElement('style');
@@ -231,13 +231,14 @@
   document.head.append(noticeStyle);
   const noticeBell=document.createElement('button');noticeBell.type='button';noticeBell.id='eclipseBell';noticeBell.setAttribute('aria-label','Abrir centro de notificaciones');noticeBell.innerHTML='<span aria-hidden="true">🔔</span><span id="eclipseBellCount" hidden>0</span>';
   const bellHost=document.querySelector('.brand');if(bellHost)bellHost.append(noticeBell);else el('accountButton').before(noticeBell);
-  const filters=document.createElement('div');filters.id='eclipseNoticeFilters';filters.innerHTML='<label>Categoría<select id="eclipseNoticeCategory"><option value="all">Todas</option><option value="episodes">Episodios</option><option value="premieres">Estrenos</option><option value="favorites">Anime favorito</option><option value="goals">Metas</option></select></label><label>Mostrar<select id="eclipseNoticeView"><option value="all">Todos los avisos</option><option value="unread">Sin leer</option><option value="starred">Avisos favoritos</option></select></label>';
+  const filters=document.createElement('div');filters.id='eclipseNoticeFilters';filters.innerHTML='<label>Categoría<select id="eclipseNoticeCategory"><option value="all">Todas</option><option value="episodes">Episodios</option><option value="premieres">Estrenos</option><option value="favorites">Anime favorito</option><option value="goals">Metas</option></select></label><label>Mostrar<select id="eclipseNoticeView"><option value="all">Todos los avisos</option><option value="unread">Sin leer</option><option value="starred">Avisos favoritos</option><option value="pinned">Fijados</option><option value="archived">Archivados</option><option value="trash">Papelera</option></select></label><label>Buscar por título<input id="eclipseNoticeSearch" type="search" maxlength="100" placeholder="Buscar avisos"></label><label>Limpieza automática<select id="eclipseNoticeCleanup"><option value="0">Desactivada</option><option value="7">Archivar tras 7 días</option><option value="30">Archivar tras 30 días</option><option value="90">Archivar tras 90 días</option></select></label><button type="button" id="eclipseNoticeFind">Buscar</button><button type="button" id="eclipseCleanupSave">Guardar limpieza</button><p class="tiny" id="eclipseNoticeStats" role="status" style="grid-column:1/-1"></p><p class="tiny" style="grid-column:1/-1">La limpieza archiva solo avisos leídos y antiguos, excepto favoritos y fijados. No borra datos.</p>';
   el('eclipseNoticeList').before(filters);
   function setBellCount(count){const badge=el('eclipseBellCount');badge.hidden=!(count>0);badge.textContent=count>99?'99+':String(count||0);noticeBell.setAttribute('aria-label','Abrir centro de notificaciones'+(count>0?' · '+count+' sin leer':''));}
   let bellRequest=0;
-  async function refreshBell(){const user=noticeUser(),request=++bellRequest;if(!user){setBellCount(0);return;}try{const {count,error}=await client.from('eclipse_notifications').select('event_key',{count:'exact',head:true}).eq('user_id',user).is('read_at',null).is('deleted_at',null);if(!error&&noticeValid(user)&&request===bellRequest)setBellCount(count||0);}catch{}}
+  async function refreshBell(){const user=noticeUser(),request=++bellRequest;if(!user){setBellCount(0);return;}try{const {count,error}=await client.from('eclipse_notifications').select('event_key',{count:'exact',head:true}).eq('user_id',user).is('read_at',null).is('deleted_at',null).is('archived_at',null);if(!error&&noticeValid(user)&&request===bellRequest)setBellCount(count||0);}catch{}}
   noticeBell.onclick=()=>{el('accountButton').click();if(noticeUser()){requestAnimationFrame(()=>noticePanel.scrollIntoView({block:'start',behavior:'auto'}));if(!noticeBusy)noticeAction('refresh');}};
   for(const id of ['eclipseNoticeCategory','eclipseNoticeView'])el(id).onchange=()=>noticeAction('refresh');
+  el('eclipseNoticeFind').onclick=()=>noticeAction('refresh');el('eclipseNoticeSearch').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();noticeAction('refresh');}};el('eclipseCleanupSave').onclick=()=>noticeAction('cleanup');
   const noticeTypes={episodes:'Nuevos episodios',premieres:'Próximos estrenos (episodio 1)',favorites:'Episodios de favoritos',goals:'Recordatorio semanal de metas'};
   for(const [kind,label] of Object.entries(noticeTypes)){
     const line=document.createElement('label'),check=document.createElement('input');
@@ -247,37 +248,50 @@
   const noticeStatus=t=>el('eclipseNoticeStatus').textContent=t;
   const noticeUser=()=>!recovery&&session?.user?.id||null;
   function noticeValid(user){return noticeUser()===user;}
-  function noticeControls(disabled){for(const id of ['eclipseNoticeSave','eclipseNoticeRefresh','eclipseNoticeRead',...Object.keys(noticeTypes).map(k=>'eclipseNotice_'+k),'eclipseNoticeCategory','eclipseNoticeView'])el(id).disabled=disabled;noticePanel.querySelectorAll('[data-notice-action]').forEach(b=>b.disabled=disabled);}
-  function resetNotice(){noticeOwner=null;noticePrefs=null;noticeLast=0;bellRequest++;setBellCount(0);el('eclipseNoticeCategory').value='all';el('eclipseNoticeView').value='all';el('eclipseNoticeList').replaceChildren();for(const k of Object.keys(noticeTypes))el('eclipseNotice_'+k).checked=false;noticeStatus('');noticeControls(true);}
+  function noticeControls(disabled){for(const id of ['eclipseNoticeSave','eclipseNoticeRefresh','eclipseNoticeRead',...Object.keys(noticeTypes).map(k=>'eclipseNotice_'+k),'eclipseNoticeCategory','eclipseNoticeView','eclipseNoticeSearch','eclipseNoticeCleanup','eclipseNoticeFind','eclipseCleanupSave'])el(id).disabled=disabled;noticePanel.querySelectorAll('[data-notice-action]').forEach(b=>b.disabled=disabled);}
+  function resetNotice(){noticeOwner=null;noticePrefs=null;noticeLast=0;bellRequest++;setBellCount(0);el('eclipseNoticeCategory').value='all';el('eclipseNoticeView').value='all';el('eclipseNoticeSearch').value='';el('eclipseNoticeCleanup').value='0';el('eclipseNoticeStats').textContent='';el('eclipseNoticeList').replaceChildren();for(const k of Object.keys(noticeTypes))el('eclipseNotice_'+k).checked=false;noticeStatus('');noticeControls(true);}
   async function loadNoticePrefs(user){
-    const {data,error}=await client.from('eclipse_notification_preferences').select('episodes,premieres,favorites,goals').eq('user_id',user).maybeSingle();
+    const {data,error}=await client.from('eclipse_notification_preferences').select('episodes,premieres,favorites,goals,cleanup_days').eq('user_id',user).maybeSingle();
     if(error)throw error;if(!noticeValid(user))throw Error('La cuenta ha cambiado.');
     noticePrefs=Object.fromEntries(Object.keys(noticeTypes).map(k=>[k,data?.[k]===true]));
-    for(const k of Object.keys(noticeTypes))el('eclipseNotice_'+k).checked=noticePrefs[k];noticeOwner=user;
+    for(const k of Object.keys(noticeTypes))el('eclipseNotice_'+k).checked=noticePrefs[k];el('eclipseNoticeCleanup').value=String(data?.cleanup_days||0);noticeOwner=user;
+  }
+  const noticeDecor={episodes:['📺','#69b9ff'],premieres:['📅','#a994ff'],favorites:['⭐','#eac65b'],goals:['🎯','#58d6a0']};
+  async function loadNoticeStats(user){
+    const base=()=>client.from('eclipse_notifications').select('event_key',{count:'exact',head:true}).eq('user_id',user);
+    const active=()=>base().is('deleted_at',null).is('archived_at',null);
+    const results=await Promise.all([active(),active().is('read_at',null),active().eq('starred',true),active().eq('pinned',true),base().is('deleted_at',null).not('archived_at','is',null),base().not('deleted_at','is',null)]);
+    if(!noticeValid(user))return;if(results.some(r=>r.error)){el('eclipseNoticeStats').textContent='Estadísticas no disponibles.';return;}
+    const labels=['Activos','Sin leer','Favoritos','Fijados','Archivados','Papelera'];el('eclipseNoticeStats').textContent=results.map((r,i)=>labels[i]+': '+(r.count||0)).join(' · ');
   }
   async function loadNoticeList(user){
-    const cat=el('eclipseNoticeCategory').value,view=el('eclipseNoticeView').value;
-    let query=client.from('eclipse_notifications').select('event_key,kind,title,body,created_at,read_at,starred').eq('user_id',user).is('deleted_at',null);
-    if(cat!=='all')query=query.eq('kind',cat);if(view==='unread')query=query.is('read_at',null);if(view==='starred')query=query.eq('starred',true);
-    const {data,error}=await query.order('created_at',{ascending:false}).limit(50);
+    const cat=el('eclipseNoticeCategory').value,view=el('eclipseNoticeView').value,term=el('eclipseNoticeSearch').value.trim().replace(/[\\%_*]/g,' ').trim();
+    let query=client.from('eclipse_notifications').select('event_key,kind,title,body,created_at,read_at,starred,pinned,archived_at,deleted_at').eq('user_id',user);
+    if(view==='trash')query=query.not('deleted_at','is',null);else{query=query.is('deleted_at',null);query=view==='archived'?query.not('archived_at','is',null):query.is('archived_at',null);}
+    if(cat!=='all')query=query.eq('kind',cat);if(view==='unread')query=query.is('read_at',null);if(view==='starred')query=query.eq('starred',true);if(view==='pinned')query=query.eq('pinned',true);if(term)query=query.ilike('title','%'+term+'%');
+    const {data,error}=await query.order('pinned',{ascending:false}).order('created_at',{ascending:false}).limit(100);
     if(error)throw error;if(!noticeValid(user))return;
     const target=el('eclipseNoticeList');target.replaceChildren();
-    const counter=document.createElement('p');counter.className='tiny';counter.textContent=(data?.length||0)+' avisos mostrados · máximo 50';target.append(counter);
-    if(!data?.length){const p=document.createElement('p');p.textContent='No hay avisos que coincidan con este filtro.';target.append(p);await refreshBell();return;}
-    for(const n of data){const card=document.createElement('div');card.className='panel eclipseNoticeCard'+(n.read_at?'':' unread');
-      const heading=document.createElement('strong');heading.textContent=(n.read_at?'':'● ')+(n.starred?'★ ':'')+n.title;
+    const counter=document.createElement('p');counter.className='tiny';counter.textContent=(data?.length||0)+' avisos mostrados · máximo 100';target.append(counter);
+    let lastGroup='';
+    if(!data?.length){const p=document.createElement('p');p.textContent='No hay avisos que coincidan con este filtro.';target.append(p);}
+    for(const n of data||[]){const group=n.pinned?'📌 Fijados':new Date(n.created_at).toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+      if(group!==lastGroup){const g=document.createElement('h4');g.textContent=group;target.append(g);lastGroup=group;}
+      const card=document.createElement('div');card.className='panel eclipseNoticeCard'+(n.read_at?'':' unread');const decor=noticeDecor[n.kind]||['🔔','#a994ff'];card.style.borderLeftColor=decor[1];
+      const heading=document.createElement('strong');heading.textContent=decor[0]+' '+(n.read_at?'':'● ')+(n.starred?'★ ':'')+n.title;
       const body=document.createElement('p');body.textContent=n.body;
       const meta=document.createElement('small');meta.className='tiny';meta.textContent=(noticeTypes[n.kind]||n.kind)+' · '+new Date(n.created_at).toLocaleString('es-ES');
       const actions=document.createElement('div');actions.className='actions';
-      for(const [action,label] of [['star',n.starred?'★ Quitar favorito':'☆ Guardar favorito'],['read',n.read_at?'Marcar sin leer':'Marcar leído'],['delete','Eliminar']]){const button=document.createElement('button');button.type='button';button.dataset.noticeAction=action;button.textContent=label;if(action==='delete')button.className='danger';button.disabled=noticeBusy;button.onclick=()=>changeNotice(user,n,action);actions.append(button);}
+      const choices=n.deleted_at?[['restore','Recuperar']]:[['star',n.starred?'★ Quitar favorito':'☆ Guardar favorito'],['pin',n.pinned?'Desfijar':'📌 Fijar'],['read',n.read_at?'Marcar sin leer':'Marcar leído'],['archive',n.archived_at?'Desarchivar':'📦 Archivar'],['delete','Papelera']];
+      for(const [action,label] of choices){const button=document.createElement('button');button.type='button';button.dataset.noticeAction=action;button.textContent=label;if(action==='delete')button.className='danger';button.disabled=noticeBusy;button.onclick=()=>changeNotice(user,n,action);actions.append(button);}
       card.append(heading,body,meta,actions);target.append(card);}
-    await refreshBell();
+    await Promise.all([refreshBell(),loadNoticeStats(user)]);
   }
   async function changeNotice(user,n,action){
     if(noticeBusy||!noticeValid(user))return;
-    if(action==='delete'&&!confirm('¿Eliminar este aviso?'))return;
-    const stamp=new Date().toISOString(),patch=action==='star'?{starred:!n.starred}:action==='read'?{read_at:n.read_at?null:stamp}:{deleted_at:stamp,read_at:stamp};
-    noticeBusy=true;noticeControls(true);try{const {error}=await client.from('eclipse_notifications').update(patch).eq('user_id',user).eq('event_key',n.event_key).is('deleted_at',null);if(error)throw error;if(!noticeValid(user))return;await loadNoticeList(user);noticeStatus(action==='delete'?'Aviso eliminado.':action==='star'?'Favorito actualizado.':'Estado actualizado.');}catch(e){if(noticeValid(user))noticeStatus('Error: '+e.message);}finally{noticeBusy=false;if(noticeValid(user))noticeControls(false);else resetNotice();}
+    if(action==='delete'&&!confirm('¿Mover este aviso a la papelera? Podrás recuperarlo.'))return;
+    const stamp=new Date().toISOString(),patch=action==='star'?{starred:!n.starred}:action==='pin'?{pinned:!n.pinned}:action==='read'?{read_at:n.read_at?null:stamp}:action==='archive'?{archived_at:n.archived_at?null:stamp}:action==='restore'?{deleted_at:null}:{deleted_at:stamp,read_at:stamp};
+    noticeBusy=true;noticeControls(true);try{let q=client.from('eclipse_notifications').update(patch).eq('user_id',user).eq('event_key',n.event_key);q=action==='restore'?q.not('deleted_at','is',null):q.is('deleted_at',null);const {error}=await q;if(error)throw error;if(!noticeValid(user))return;await loadNoticeList(user);noticeStatus(action==='delete'?'Aviso movido a la papelera.':action==='restore'?'Aviso recuperado.':'Aviso actualizado.');}catch(e){if(noticeValid(user))noticeStatus('Error: '+e.message);}finally{noticeBusy=false;if(noticeValid(user))noticeControls(false);else resetNotice();}
   }
   async function generateNotices(user,prefs){
     const now=Math.floor(Date.now()/1000),events=[];
@@ -312,8 +326,10 @@
       if(action==='save'){
         const values=Object.fromEntries(Object.keys(noticeTypes).map(k=>[k,el('eclipseNotice_'+k).checked]));
         const {error}=await client.from('eclipse_notification_preferences').upsert({user_id:user,...values,updated_at:new Date().toISOString()});if(error)throw error;if(!noticeValid(user))return;noticePrefs=values;noticeStatus('Preferencias guardadas.');
+      }else if(action==='cleanup'){
+        const days=Number(el('eclipseNoticeCleanup').value);if(![0,7,30,90].includes(days))throw Error('Plazo no válido.');const {error}=await client.from('eclipse_notification_preferences').upsert({user_id:user,cleanup_days:days,updated_at:new Date().toISOString()});if(error)throw error;if(!noticeValid(user))return;noticeStatus(days?'Limpieza guardada: archivar tras '+days+' días.':'Limpieza desactivada.');
       }else if(action==='read'){
-        const {error}=await client.from('eclipse_notifications').update({read_at:new Date().toISOString()}).eq('user_id',user).is('read_at',null).is('deleted_at',null);if(error)throw error;noticeStatus('Avisos marcados como leídos.');
+        const {error}=await client.from('eclipse_notifications').update({read_at:new Date().toISOString()}).eq('user_id',user).is('read_at',null).is('deleted_at',null).is('archived_at',null);if(error)throw error;noticeStatus('Avisos marcados como leídos.');
       }else if(action==='check'){
         noticeStatus('Comprobando avisos…');await generateNotices(user,noticePrefs);noticeLast=Date.now();noticeStatus('Comprobación completada.');
       }else noticeStatus(action==='refresh'?'Avisos actualizados.':'Preferencias cargadas.');
